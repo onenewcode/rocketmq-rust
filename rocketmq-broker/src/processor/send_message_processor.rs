@@ -19,6 +19,18 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::Instant;
 
+use crate::broker_runtime::BrokerRuntimeInner;
+use crate::client::net::broker_to_client::Broker2Client;
+use crate::mqtrace::consume_message_context::ConsumeMessageContext;
+use crate::mqtrace::consume_message_hook::ConsumeMessageHook;
+use crate::mqtrace::send_message_context::SendMessageContext;
+use crate::mqtrace::send_message_hook::SendMessageHook;
+use crate::send_message_constants::error_messages;
+use crate::send_message_constants::message_limits;
+use crate::send_message_constants::queue_config;
+use crate::send_message_constants::retry_config;
+use crate::topic::manager::topic_queue_mapping_manager::TopicQueueMappingManager;
+use crate::transaction::transactional_message_service::TransactionalMessageService;
 use cheetah_string::CheetahString;
 use rand::Rng;
 use rocketmq_common::common::attribute::cleanup_policy::CleanupPolicy;
@@ -73,21 +85,9 @@ use rocketmq_store::base::message_status_enum::PutMessageStatus;
 use rocketmq_store::base::message_store::MessageStore;
 use rocketmq_store::stats::broker_stats_manager::BrokerStatsManager;
 use rocketmq_store::stats::stats_type::StatsType;
+use tracing::debug;
 use tracing::info;
 use tracing::warn;
-
-use crate::broker_runtime::BrokerRuntimeInner;
-use crate::client::net::broker_to_client::Broker2Client;
-use crate::mqtrace::consume_message_context::ConsumeMessageContext;
-use crate::mqtrace::consume_message_hook::ConsumeMessageHook;
-use crate::mqtrace::send_message_context::SendMessageContext;
-use crate::mqtrace::send_message_hook::SendMessageHook;
-use crate::send_message_constants::error_messages;
-use crate::send_message_constants::message_limits;
-use crate::send_message_constants::queue_config;
-use crate::send_message_constants::retry_config;
-use crate::topic::manager::topic_queue_mapping_manager::TopicQueueMappingManager;
-use crate::transaction::transactional_message_service::TransactionalMessageService;
 
 pub struct SendMessageProcessor<MS: MessageStore, TS> {
     inner: ArcMut<Inner<MS, TS>>,
@@ -106,7 +106,7 @@ where
         request: &mut RemotingCommand,
     ) -> rocketmq_error::RocketMQResult<Option<RemotingCommand>> {
         let request_code = RequestCode::from(request.code());
-        info!("SendMessageProcessor received request code: {:?}", request_code);
+        debug!("SendMessageProcessor received request code: {:?}", request_code);
         match request_code {
             RequestCode::SendMessage
             | RequestCode::SendMessageV2
