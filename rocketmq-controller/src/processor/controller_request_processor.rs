@@ -165,7 +165,8 @@ impl ControllerRequestProcessor {
         blacklist.insert("configStorePath".to_string());
         blacklist.insert("rocketmqHome".to_string());
 
-        let config_black_list = controller_manager.controller_config().config_black_list.as_str();
+        let config = controller_manager.controller_config();
+        let config_black_list = config.config_black_list.as_str();
         if !config_black_list.is_empty() {
             for item in config_black_list.split(';') {
                 let trimmed: &str = item.trim();
@@ -417,13 +418,67 @@ impl ControllerRequestProcessor {
     /// # Returns
     ///
     /// Result containing success or error response
+    ///
+    /// # Implementation Details
+    ///
+    /// 1. Parse request body as properties string (format: key1=value1\nkey2=value2\n...)
+    /// 2. Validate against configuration blacklist
+    /// 3. Apply configuration updates to controller config
+    /// 4. Return success response
+    ///
+    /// # Errors
+    ///
+    /// Returns error response if:
+    /// - Request body is empty
+    /// - Properties parsing fails
+    /// - Blacklisted configuration is present
+    /// - Configuration update fails
     async fn handle_update_controller_config(
         &mut self,
         _channel: Channel,
         _ctx: ConnectionHandlerContext,
-        _request: &mut RemotingCommand,
+        request: &mut RemotingCommand,
     ) -> RocketMQResult<Option<RemotingCommand>> {
-        unimplemented!("unimplemented handle_update_controller_config")
+        use rocketmq_common::common::mix_all::string_to_properties;
+        use rocketmq_error::RocketMQError;
+
+        let body = request.body().ok_or_else(|| {
+            RocketMQError::request_body_invalid(
+                "UPDATE_CONTROLLER_CONFIG",
+                "Request body is empty",
+            )
+        })?;
+
+        let content = String::from_utf8_lossy(body);
+        let properties = string_to_properties(&content).ok_or_else(|| {
+            RocketMQError::request_body_invalid(
+                "UPDATE_CONTROLLER_CONFIG",
+                "Failed to parse properties from request body",
+            )
+        })?;
+
+        let properties: std::collections::HashMap<String, String> = properties
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+
+        if self.validate_blacklist_config_exist(&properties) {
+            return Ok(Some(
+                RemotingCommand::create_response_command_with_code_remark(
+                    ResponseCode::NoPermission,
+                    "Cannot update blacklisted configuration".to_string(),
+                )
+            ));
+        }
+
+        self.controller_manager.update_config(properties).map_err(|e| {
+            RocketMQError::request_body_invalid(
+                "UPDATE_CONTROLLER_CONFIG",
+                format!("Failed to update configuration: {}", e),
+            )
+        })?;
+
+        Ok(Some(RemotingCommand::create_response_command()))
     }
 
     /// Handle GET_CONTROLLER_CONFIG request

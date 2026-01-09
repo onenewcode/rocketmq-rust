@@ -84,7 +84,7 @@ use tracing::warn;
 /// Uses AtomicBool for state flags instead of RwLock to minimize lock contention.
 pub struct ControllerManager {
     /// Configuration
-    config: Arc<ControllerConfig>,
+    config: std::sync::RwLock<Arc<ControllerConfig>>,
 
     /// Raft controller for consensus and leader election
     /// Note: Uses ArcMut to allow mutable access via &self
@@ -195,7 +195,7 @@ impl ControllerManager {
         info!("Controller manager created successfully");
 
         Ok(Self {
-            config,
+            config: std::sync::RwLock::new(config),
             raft_controller: raft_arc,
             metadata,
             heartbeat_manager,
@@ -572,8 +572,8 @@ impl ControllerManager {
     /// # Returns
     ///
     /// A reference to the controller configuration
-    pub fn config(&self) -> &Arc<ControllerConfig> {
-        &self.config
+    pub fn config(&self) -> Arc<ControllerConfig> {
+        self.config.read().unwrap().clone()
     }
 
     /// Get the metrics manager (only available with "metrics" feature)
@@ -593,8 +593,35 @@ impl ControllerManager {
     /// A reference to the controller configuration
     ///
     /// This is an alias for `config()` for API compatibility
-    pub fn controller_config(&self) -> &ControllerConfig {
-        &self.config
+    pub fn controller_config(&self) -> Arc<ControllerConfig> {
+        self.config.read().unwrap().clone()
+    }
+
+    /// Update controller configuration
+    ///
+    /// This method allows dynamic configuration updates. It creates a new configuration
+    /// with the updated properties and replaces the existing configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `properties` - HashMap containing configuration key-value pairs to update
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if configuration is updated successfully
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(ControllerError)` if:
+    /// - An unknown configuration key is provided
+    /// - A value cannot be parsed to the correct type
+    pub fn update_config(&self, properties: std::collections::HashMap<String, String>) -> Result<()> {
+        let mut config = self.config.write().unwrap();
+        let new_config = (*config).clone();
+        let mut new_config = (*new_config).clone();
+        new_config.update(properties).map_err(|e| ControllerError::ConfigError(e))?;
+        *config = Arc::new(new_config);
+        Ok(())
     }
 
     /// Get the heartbeat manager
