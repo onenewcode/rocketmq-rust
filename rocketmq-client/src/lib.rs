@@ -85,3 +85,4 @@ mod types;
 pub mod utils;
 
 pub use crate::consumer::consumer_impl::pull_request_ext::PullResultExt;
+pub use crate::trace::trace_data_encoder::TraceDataEncoder;
